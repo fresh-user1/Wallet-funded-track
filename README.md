@@ -131,10 +131,11 @@ The funder wallet is identified as the address that sent the first transaction T
 
 ## Limitations
 
-- The script searches backwards through a limited number of blocks (default: 5000 for funder tracing)
+- The script searches backwards through a limited number of blocks (default: 2000 for funder tracing)
 - For very old deployer addresses, the funder might not be found if it's beyond the search limit
-- Requires a stable connection to a Base network RPC endpoint
+- Requires a stable connection to a Base network RPC endpoint with good historical data access
 - Public RPC endpoints may have rate limits
+- Funder tracing can take several minutes per pair and uses many RPC calls
 
 ## Troubleshooting
 

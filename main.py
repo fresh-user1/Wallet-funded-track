@@ -34,7 +34,7 @@ FACTORY_ABI = [
             {"indexed": True, "name": "token0", "type": "address"},
             {"indexed": True, "name": "token1", "type": "address"},
             {"indexed": False, "name": "pair", "type": "address"},
-            {"indexed": False, "name": "param", "type": "uint256"}
+            {"indexed": False, "name": "allPairsLength", "type": "uint256"}
         ],
         "name": "PairCreated",
         "type": "event"
@@ -89,7 +89,7 @@ def get_deployer_address(w3, pair_address):
                                     pair_from_log = '0x' + log['data'][-40:]
                                     if pair_from_log.lower() == pair_address.lower():
                                         return tx['from']
-                            except:
+                            except (ValueError, KeyError, IndexError) as e:
                                 continue
         
         # If we couldn't find it in recent blocks, return None
@@ -118,21 +118,28 @@ def get_funder_wallet(w3, deployer_address):
         
         # Search backwards through blocks to find first transaction TO this address
         # We'll search a reasonable number of blocks
-        search_limit = 5000  # Search last 5000 blocks
+        search_limit = 2000  # Reduced from 5000 for better performance
         
         first_incoming_tx = None
-        first_block_num = current_block
+        first_block_num = float('inf')  # Track the earliest block number
         
+        # Search backwards from current to past
         for block_num in range(current_block, max(0, current_block - search_limit), -1):
-            block = w3.eth.get_block(block_num, full_transactions=True)
-            
-            for tx in block['transactions']:
-                # Check if this transaction is TO the deployer address
-                if tx['to'] and tx['to'].lower() == deployer_address.lower():
-                    # This is an incoming transaction
-                    if block_num <= first_block_num:
-                        first_block_num = block_num
-                        first_incoming_tx = tx
+            try:
+                block = w3.eth.get_block(block_num, full_transactions=True)
+                
+                for tx in block['transactions']:
+                    # Check if this transaction is TO the deployer address
+                    if tx['to'] and tx['to'].lower() == deployer_address.lower():
+                        # This is an incoming transaction
+                        # Keep track of the earliest (first) one
+                        if block_num < first_block_num:
+                            first_block_num = block_num
+                            first_incoming_tx = tx
+                            
+            except Exception as e:
+                # Skip blocks that cause errors and continue searching
+                continue
         
         if first_incoming_tx:
             return first_incoming_tx['from']
@@ -164,6 +171,8 @@ def monitor_new_pairs(w3, factory_contract, rpc_url, poll_interval=2):
     print(f"Starting from block: {latest_block}\n")
     
     processed_pairs = set()  # Keep track of processed pairs to avoid duplicates
+    consecutive_failures = 0  # Track consecutive failures
+    MAX_CONSECUTIVE_FAILURES = 10  # Exit after 10 consecutive failures
     
     try:
         while True:
@@ -214,6 +223,7 @@ def monitor_new_pairs(w3, factory_contract, rpc_url, poll_interval=2):
                         
                         # Get the funder wallet
                         print("Tracing back to find funder wallet...")
+                        print("⚠️  Note: This may take a few minutes as it searches through historical blocks")
                         funder_wallet = get_funder_wallet(w3, deployer_address)
                         
                         if funder_wallet:
@@ -224,13 +234,24 @@ def monitor_new_pairs(w3, factory_contract, rpc_url, poll_interval=2):
                         print(f"{'='*80}\n")
                     
                     latest_block = current_block
+                    consecutive_failures = 0  # Reset on success
                 
                 # Wait before next poll
                 time.sleep(poll_interval)
                 
+            except KeyboardInterrupt:
+                # Allow clean exit on Ctrl+C
+                raise
             except Exception as e:
-                print(f"Error in monitoring loop: {e}")
-                time.sleep(poll_interval)
+                consecutive_failures += 1
+                print(f"Error in monitoring loop (failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}): {e}")
+                
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print(f"\n❌ Exiting after {MAX_CONSECUTIVE_FAILURES} consecutive failures")
+                    sys.exit(1)
+                
+                # Wait before retrying
+                time.sleep(poll_interval * 2)
                 continue
                 
     except KeyboardInterrupt:
@@ -249,10 +270,13 @@ def main():
     w3 = None
     connected_rpc = None
     
+    # Get custom timeout from environment or use default
+    rpc_timeout = int(os.getenv('RPC_TIMEOUT', '60'))  # Default 60 seconds
+    
     for rpc_url in BASE_RPC_URLS:
         try:
             print(f"Attempting connection to: {rpc_url}")
-            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}))
+            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': rpc_timeout}))
             
             # Check connection
             if w3.is_connected():
