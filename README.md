@@ -105,7 +105,7 @@ BASE_RPC_URL=https://your-custom-rpc-url.com
 You can modify these constants in `main.py`:
 
 - `BASESWAP_FACTORY`: Factory contract address (default: BaseSwap on Base)
-- `search_limit` in `get_funder_wallet()`: Number of blocks to search backwards (default: 5000)
+- `search_limit` in `get_funder_wallet()`: Number of blocks to search backwards (default: 2000)
 - `poll_interval`: Seconds between polling for new events (default: 2)
 
 ## Technical Details

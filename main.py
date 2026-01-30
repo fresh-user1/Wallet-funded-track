@@ -42,65 +42,6 @@ FACTORY_ABI = [
 ]
 
 
-def get_deployer_address(w3, pair_address):
-    """
-    Get the deployer address of a contract by finding the transaction that created it.
-    
-    Args:
-        w3: Web3 instance
-        pair_address: Address of the pair contract
-        
-    Returns:
-        Address of the deployer (transaction sender)
-    """
-    try:
-        # Get the contract creation transaction
-        # We need to search through blocks to find when this contract was created
-        # For efficiency, we'll trace the contract code and find its creation
-        
-        # Get the current block
-        current_block = w3.eth.block_number
-        
-        # Search backwards from current block (limited search)
-        # In a production system, you might want to use an indexer or archive node
-        search_limit = 1000  # Search last 1000 blocks
-        
-        for block_num in range(current_block, max(0, current_block - search_limit), -1):
-            block = w3.eth.get_block(block_num, full_transactions=True)
-            
-            for tx in block['transactions']:
-                # Check if this transaction created the pair contract
-                if tx['to'] is None:  # Contract creation
-                    receipt = w3.eth.get_transaction_receipt(tx['hash'])
-                    if receipt['contractAddress'] and receipt['contractAddress'].lower() == pair_address.lower():
-                        return tx['from']
-                        
-                # Also check if transaction is to the factory creating this pair
-                if tx['to'] and tx['to'].lower() == BASESWAP_FACTORY.lower():
-                    receipt = w3.eth.get_transaction_receipt(tx['hash'])
-                    # Check logs for PairCreated event with our pair address
-                    for log in receipt['logs']:
-                        if len(log['topics']) > 0:
-                            # Check if this is a PairCreated event
-                            try:
-                                if log['address'].lower() == BASESWAP_FACTORY.lower():
-                                    # Decode the pair address from event data
-                                    # The pair address is in the data field (non-indexed)
-                                    pair_from_log = '0x' + log['data'][-40:]
-                                    if pair_from_log.lower() == pair_address.lower():
-                                        return tx['from']
-                            except (ValueError, KeyError, IndexError) as e:
-                                continue
-        
-        # If we couldn't find it in recent blocks, return None
-        print(f"Warning: Could not find deployer for {pair_address} in last {search_limit} blocks")
-        return None
-        
-    except Exception as e:
-        print(f"Error getting deployer address: {e}")
-        return None
-
-
 def get_funder_wallet(w3, deployer_address):
     """
     Find the funder wallet by tracing the first incoming transaction to the deployer address.
@@ -118,10 +59,10 @@ def get_funder_wallet(w3, deployer_address):
         
         # Search backwards through blocks to find first transaction TO this address
         # We'll search a reasonable number of blocks
-        search_limit = 2000  # Reduced from 5000 for better performance
+        search_limit = 2000  # Search last 2000 blocks (reduced for better performance)
         
         first_incoming_tx = None
-        first_block_num = float('inf')  # Track the earliest block number
+        first_block_num = current_block + 1  # Initialize to value higher than any real block
         
         # Search backwards from current to past
         for block_num in range(current_block, max(0, current_block - search_limit), -1):
@@ -137,7 +78,7 @@ def get_funder_wallet(w3, deployer_address):
                             first_block_num = block_num
                             first_incoming_tx = tx
                             
-            except Exception as e:
+            except (ConnectionError, TimeoutError, ValueError) as e:
                 # Skip blocks that cause errors and continue searching
                 continue
         
@@ -223,7 +164,8 @@ def monitor_new_pairs(w3, factory_contract, rpc_url, poll_interval=2):
                         
                         # Get the funder wallet
                         print("Tracing back to find funder wallet...")
-                        print("⚠️  Note: This may take a few minutes as it searches through historical blocks")
+                        print("⚠️  Note: This will make up to 2000 RPC calls and may take 5-10 minutes")
+                        print("         Consider using a paid RPC endpoint for better performance")
                         funder_wallet = get_funder_wallet(w3, deployer_address)
                         
                         if funder_wallet:

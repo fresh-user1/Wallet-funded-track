@@ -10,7 +10,7 @@ Example Usage and Testing Guide for Wallet Funder Tracker
 #     address indexed token0,
 #     address indexed token1,
 #     address pair,
-#     uint256 param
+#     uint256 allPairsLength  # Total number of pairs created
 # )
 
 ## Step 2: Extract deployer address
@@ -88,7 +88,7 @@ Tracing back to find funder wallet...
 #   * QuickNode (https://www.quicknode.com/)
 
 ## Limitations:
-# - Searches limited number of blocks (default: 5000 for funder tracing)
+# - Searches limited number of blocks (default: 2000 for funder tracing)
 # - Public RPC endpoints may have rate limits
 # - Very old deployers might not be found within search limit
 
